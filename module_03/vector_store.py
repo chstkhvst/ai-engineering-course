@@ -66,8 +66,8 @@ QUERIES = [
     "как часто проводить углублённую проверку насоса",
     "кто согласует ремонт насосного оборудования",
     "что за инцидент был с гидравлическим прессом",
-    "___",
-    "___",
+    "по какому покрытию должны перемещаться подъемные сооружения",
+    "почему не работает установка на участке",
 ]
 
 # TODO 3: порог уверенности. Если лучший score ниже этого числа — считаем,
@@ -75,7 +75,8 @@ QUERIES = [
 # Сейчас 0.0 — порога нет вовсе, в выводе видно всё подряд, включая мусор.
 # Подбери его по последнему блоку вывода: там напечатаны худший score
 # вопроса из базы и лучший score вопроса, которого в базе нет.
-MIN_SCORE = 0.0
+MIN_SCORE = 0.7
+
 
 
 # ====================================================================
@@ -94,27 +95,14 @@ def load_manifest() -> dict:
     return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
 
-def search(client, model, query: str, alias: str,
-           doc_type: str = None, limit: int = TOP_K):
-    """Ищет в базе куски, близкие к запросу.
-
-    TODO 2: сейчас функция игнорирует doc_type и всегда ищет по всей базе.
-    Инженеру нужен ответ из регламента, а не похожий по словам кусок
-    из журнала инцидентов — поэтому поиск должен уметь ограничиваться типом.
-
-    Что сделать (Filter, FieldCondition и MatchValue уже импортированы):
-      1. Если doc_type — None, фильтра нет: query_filter остаётся None.
-      2. Иначе собрать фильтр:
-         Filter(must=[FieldCondition(key="type",
-                                     match=MatchValue(value=doc_type))])
-      3. Передать его в query_points параметром query_filter.
-
-    Поле «type» проиндексировано в ingestion.py — фильтрация по нему
-    не заставляет Qdrant перебирать всю коллекцию.
-    """
+def search(client, model, query, alias, doc_type=None, limit=TOP_K):
     vector = model.encode(query).tolist()
 
     query_filter = None
+    if doc_type is not None:
+        query_filter = Filter(
+            must=[FieldCondition(key="type", match=MatchValue(value=doc_type))]
+        )
 
     return client.query_points(
         collection_name=alias,
