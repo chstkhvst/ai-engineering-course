@@ -94,27 +94,18 @@ JUDGE_SYSTEM = (
 # ====================================================================
 
 def classify(question: dict, hits, result: dict) -> str:
-    """TODO 1: оценка ответа по разметке eval-набора.
-
-    Верни одну из меток:
-      - ok
-      - hallucination
-      - over_refusal
-      - retrieval_error
-      - generation_error
-
-    Логика:
-      1) Если question["in_corpus"] == False:
-         - ответ == REFUSAL_TEXT -> ok
-         - иначе -> hallucination
-      2) Если вопрос из корпуса, но ассистент отказал (REFUSAL_TEXT) -> over_refusal
-      3) Проверить источники: хотя бы один doc_id из question["expected"]
-         должен быть в result["sources"], иначе -> retrieval_error
-      4) Проверить фактоид: question["must_contain"] должен встречаться в answer
-         (без учёта регистра), иначе -> generation_error
-      5) Иначе -> ok
-    """
-    # TODO 1: замени заглушку на реализацию по шагам выше
+    answer = result["answer"]
+    if not question["in_corpus"]:
+        return "ok" if answer == REFUSAL_TEXT else "hallucination"
+    if answer == REFUSAL_TEXT:
+        return "over_refusal"
+    sources = result.get("sources") or []
+    expected = question.get("expected") or []
+    if expected and not any(doc in sources for doc in expected):
+        return "retrieval_error"
+    must = (question.get("must_contain") or "").lower()
+    if must and must not in answer.lower():
+        return "generation_error"
     return "ok"
 
 
@@ -123,27 +114,21 @@ def classify(question: dict, hits, result: dict) -> str:
 # ====================================================================
 
 def llm_judge(question: str, context: str, answer_text: str) -> dict:
-    """TODO 2: попросить GigaChat оценить ответ ассистента как судья.
-
-    Что сделать:
-      1) Собрать user_msg из question/context/answer_text.
-      2) Вызвать GigaChat с system=JUDGE_SYSTEM и user=user_msg.
-      3) Распарсить JSON из ответа модели и вернуть dict.
-      4) В except вернуть fallback:
-         {"overall_verdict": "error", "reason": str(e)}
-
-    Ожидаемые поля в словаре судьи:
-      answer_relevance, context_relevance, answer_faithfulness,
-      overall_verdict, reason
-    """
-    # TODO 2: замени заглушку на реальный вызов судьи
-    return {
-        "answer_relevance": "low",
-        "context_relevance": "low",
-        "answer_faithfulness": "low",
-        "overall_verdict": "error",
-        "reason": "TODO 2: llm_judge не реализован",
-    }
+    creds = os.getenv("GIGACHAT_CREDENTIALS", "").strip().strip("'\"")
+    scope = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+    user_msg = f"ВОПРОС: {question}\n\nКОНТЕКСТ:\n{context}\n\nОТВЕТ: {answer_text}"
+    try:
+        with GigaChat(credentials=creds, scope=scope, verify_ssl_certs=False) as gc:
+            resp = gc.chat({
+                "messages": [
+                    {"role": "system", "content": JUDGE_SYSTEM},
+                    {"role": "user",   "content": user_msg},
+                ]
+            })
+        raw = resp.choices[0].message.content.strip()
+        return json.loads(raw)
+    except Exception as e:
+        return {"overall_verdict": "error", "reason": str(e)}
 
 
 # ====================================================================
@@ -295,72 +280,49 @@ def _print_judge_report(rows: list) -> None:
 # ====================================================================
 
 def sweep_chunking(client, model, alias: str):
-    """Автоматически перебирает параметры нарезки и сравнивает качество двумя способами.
-
-    Эту функцию запускают командой:  python evaluate_rag.py --sweep
-    Вручную запускать ingestion.py несколько раз не нужно — функция сама
-    пересобирает индекс Qdrant на каждой комбинации параметров.
-
-    TODO 3: сейчас функция только печатает шапку таблицы — заглушка.
-    Напиши цикл по CHUNK_COMBOS. На каждой итерации:
-      1. ingestion.CHUNK_SIZE = size; ingestion.OVERLAP = overlap
-      2. ingestion.build_index(client, model)  — пересобирает индекс, возвращает manifest
-      3. counts = run_eval(client, model, alias, verbose=False)
-         Посчитай для вопросов из базы (in_corpus=True):
-           - верных по разметке:  counts["markup"].get("ok", 0)
-           - верных по судье:     counts["judge"].get("ok", 0)
-      4. Выведи строку таблицы (см. формат ниже).
-
-    После цикла верни параметры к 600/150 и пересобери индекс ещё раз —
-    иначе следующий обычный запуск будет работать на последних параметрах.
-
-    Ожидаемый вид таблицы (8 вопросов из базы из 11 всего):
-
-        Размер чанка / перекрытие  | чанков |  ✓ по разметке | ✓ по судье
-        ──────────────────────────────────────────────────────────────────────
-        1000 / 200                 |    563 |          6 / 8 |      5 / 8
-         600 / 0                   |    715 |          7 / 8 |      7 / 8
-         600 / 150                 |    921 |          7 / 8 |      7 / 8
-         400 / 0                   |   1028 |          5 / 8 |      5 / 8
-         400 / 100                 |   1337 |          7 / 8 |      6 / 8
-         300 / 150                 |   2600 |          4 / 8 |      3 / 8
-
-    Разметка и судья могут расходиться: разметка проверяет, есть ли нужная
-    строка в ответе; судья оценивает, насколько ответ полезен и честен.
-    """
     in_corpus_total = sum(1 for q in QUESTIONS if q["in_corpus"])
     col = f"{'Размер чанка / перекрытие':<26}"
     print(f"\n  {col} | {'чанков':>7} | {'✓ по разметке':>14} | {'✓ по судье':>10}")
     print("  " + _SEP[:72])
     original = (ingestion.CHUNK_SIZE, ingestion.OVERLAP)
-    # TODO 3: перебор здесь
+    for size, overlap in CHUNK_COMBOS:
+        ingestion.CHUNK_SIZE = size
+        ingestion.OVERLAP = overlap
+        manifest, _ = ingestion.build_index(client, model)
+        counts = run_eval(client, model, alias, verbose=False)
+        markup_ok = counts["markup"].get("ok", 0)
+        judge_ok  = counts["judge"].get("ok", 0)
+        label = f"{size} / {overlap}"
+        print(
+            f"  {label:<26} | {manifest['chunks']:>7} | "
+            f"  {markup_ok} / {in_corpus_total:>3}    | "
+            f"  {judge_ok} / {in_corpus_total}"
+        )
     ingestion.CHUNK_SIZE, ingestion.OVERLAP = original
-
+    ingestion.build_index(client, model)
 
 # ====================================================================
 #  КОНФЛИКТ ВЕРСИЙ ОДНОГО РЕГЛАМЕНТА
 # ====================================================================
 
 def resolve_conflicts(hits):
-    """Если в выдаче несколько версий одного регламента — оставляет свежую.
+    def base_id(doc_id: str) -> str:
+        return doc_id[:-4] if doc_id.endswith("-OLD") else doc_id
 
-    TODO 4: сейчас возвращает hits без изменений — заглушка. С ней
-    demo_conflict() покажет саму проблему, но не решение.
+    best_date = {}
+    best_doc = {}
+    for h in hits:
+        p = h.payload
+        key = base_id(p["doc_id"])
+        date = p.get("date") or ""
+        if key not in best_date or date > best_date[key]:
+            best_date[key] = date
+            best_doc[key] = p["doc_id"]
 
-    В data/corpus_conflict/REGL-GEN-01-OLD.json лежит устаревшая (version
-    2.0, дата 2022-05-14) редакция регламента, который в основном корпусе
-    существует как REGL-GEN-01 (version 3.1, дата 2024-01-10) — тот же
-    регламент, тот же номер РГЛ-НО-014, другие сроки. Оба документа
-    отвечают на один вопрос по смыслу — Qdrant не знает, что один из них
-    отменён, и вернёт оба, если оба лежат в индексе.
-
-    Что сделать: сгруппировать hits по базовому doc_id (REGL-GEN-01-OLD
-    и REGL-GEN-01 — одна группа: суффикс -OLD не признак другой группы);
-    в каждой группе оставить запись с максимальным payload["date"]
-    (строки ГГГГ-ММ-ДД сравниваются как даты), остальные выбросить.
-    Порядок и score оставшихся точек не менять.
-    """
-    return hits
+    return [
+        h for h in hits
+        if h.payload["doc_id"] == best_doc[base_id(h.payload["doc_id"])]
+    ]
 
 
 def demo_conflict(client, model, alias: str):
