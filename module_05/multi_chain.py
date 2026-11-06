@@ -63,7 +63,8 @@ CASES = json.loads(
 # технические вопросы ещё уходят не туда.
 # ------------------------------------------------------------------
 TECH_WORDS = [
-    "ошибк", "оборудован", "стано", "датчик", "mes",
+    "ошибк", "оборудован", "стан", "датчик", "mes", "конвейер", "насос", "пресс", "неисправн",
+    "компрессор", "подшипник", "шум", "давлени", "редуктор", "розлив", "контур", 
 ]
 
 # Основы слов, при которых обращение НЕМЕДЛЕННО уходит человеку.
@@ -97,15 +98,7 @@ def _tokens(text: str) -> list:
 
 
 def mentions_equipment(question: str) -> bool:
-    """Есть ли в вопросе код оборудования из реестра.
-
-    TODO 2. Код — самый надёжный технический признак: «KM-101 странно шумит»
-    не содержит ни одного слова из TECH_WORDS, но код выдаёт маршрут.
-    Пройди по _tokens(question), нормализуй каждое слово через _norm(...)
-    и проверь, есть ли оно в REGISTRY_LOOKUP.
-    """
-    raise NotImplementedError("TODO 2: поиск кода оборудования в вопросе")
-
+    return any(_norm(token) in REGISTRY_LOOKUP for token in _tokens(question))
 
 # ====================================================================
 #  КЛАССИФИКАТОР ПРАВИЛ
@@ -118,17 +111,11 @@ def _has_word(text: str, stems: list) -> bool:
 
 
 def classify(question: str) -> str:
-    """Маршрут вопроса: safety / technical / general.
-
-    TODO 3. Порядок проверок — это приоритет: сообщение «искрит датчик
-    у насоса» содержит и safety-, и технические признаки, но люди важнее
-    железа. Правила:
-      * нашлась основа из SAFETY_WORDS               -> "safety";
-      * основа из TECH_WORDS ИЛИ код из реестра      -> "technical";
-      * иначе                                        -> "general".
-    """
-    raise NotImplementedError("TODO 3: классификатор правил")
-
+    if _has_word(question, SAFETY_WORDS):
+        return "safety"
+    if _has_word(question, TECH_WORDS) or mentions_equipment(question):
+        return "technical"
+    return "general"
 
 # ====================================================================
 #  ВЕТКИ И ВИЛКА
@@ -159,32 +146,21 @@ MIN_QUESTION_LEN = 4
 
 
 def build_router_chain(model):
-    """Вилка маршрутов. Вход {"question": ...}, выход {"route", "answer"}.
-
-    TODO 4. RunnableBranch перебирает пары (условие, ветка) и запускает
-    первую ветку, чьё условие сработало; последний аргумент — ветка
-    по умолчанию. Собери вилку из четырёх маршрутов:
-
-      1) len(x["question"].strip()) < MIN_QUESTION_LEN
-             -> wrap("уточнить", CLARIFY_ANSWER)
-      2) classify(...) == "safety"
-             -> wrap("safety -> человеку", SAFETY_ANSWER)   # БЕЗ модели!
-      3) classify(...) == "technical"
-             -> wrap("technical", tech_chain.invoke(x))
-      4) по умолчанию
-             -> wrap("general", general_chain.invoke(x))
-
-    Каждая ветка — RunnableLambda(lambda x: ...). Условие — обычная
-    lambda x: ... (первым элементом пары).
-    """
     tech_chain = TECH_PROMPT | model | StrOutputParser()
     general_chain = GENERAL_PROMPT | model | StrOutputParser()
 
     def wrap(route, answer):
         return {"route": route, "answer": answer}
 
-    raise NotImplementedError("TODO 4: собери RunnableBranch из четырёх маршрутов")
-
+    return RunnableBranch(
+        (lambda x: len(x["question"].strip()) < MIN_QUESTION_LEN,
+         RunnableLambda(lambda x: wrap("уточнить", CLARIFY_ANSWER))),
+        (lambda x: classify(x["question"]) == "safety",
+         RunnableLambda(lambda x: wrap("safety -> человеку", SAFETY_ANSWER))),
+        (lambda x: classify(x["question"]) == "technical",
+         RunnableLambda(lambda x: wrap("technical", tech_chain.invoke(x)))),
+        RunnableLambda(lambda x: wrap("general", general_chain.invoke(x))),
+    )
 
 # ====================================================================
 
