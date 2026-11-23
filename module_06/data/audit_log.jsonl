@@ -1,0 +1,12 @@
+{"timestamp": "2026-11-12T22:25:21.070549+00:00", "action": "get_equipment_status", "params": {"equipment_id": "PUMP-07"}, "ok": true}
+{"timestamp": "2026-11-12T22:25:59.890360+00:00", "action": "create_incident", "params": {"equipment_id": "SEP-04", "priority": "high", "role": "engineer"}, "ok": true}
+{"timestamp": "2026-11-12T22:26:40.014267+00:00", "action": "get_equipment_status", "params": {"equipment_id": "XYZ-999"}, "ok": false}
+{"timestamp": "2026-11-12T22:27:59.828684+00:00", "action": "create_incident", "params": {"equipment_id": "SEP-04", "priority": "high", "role": "viewer"}, "ok": false}
+{"timestamp": "2026-11-23T14:06:30.068744+00:00", "action": "get_equipment_status", "params": {"equipment_id": "насос в дроблении"}, "ok": false}
+{"timestamp": "2026-11-23T14:08:33.261051+00:00", "action": "get_equipment_status", "params": {"equipment_id": "PUMP-07"}, "ok": true}
+{"timestamp": "2026-11-23T14:30:11.037891+00:00", "action": "create_incident", "params": {"equipment_id": "PUMP-07", "priority": "medium", "role": "engineer"}, "ok": true}
+{"timestamp": "2026-11-23T14:33:53.932078+00:00", "action": "create_incident", "params": {"equipment_id": "SEP-04", "priority": "critical", "role": "admin"}, "ok": true}
+{"timestamp": "2026-11-23T14:49:18.706147+00:00", "action": "create_incident", "params": {"equipment_id": "PUMP-07", "priority": "urgent", "role": "engineer"}, "ok": false}
+{"timestamp": "2026-11-23T14:50:04.923350+00:00", "action": "create_incident", "params": {"equipment_id": "CONV-09", "priority": "low", "role": "viewer"}, "ok": false}
+{"timestamp": "2026-11-23T14:51:04.852214+00:00", "action": "create_incident", "params": {"equipment_id": "CONV-99", "priority": "high", "role": "engineer"}, "ok": false}
+{"timestamp": "2026-11-23T14:51:52.388415+00:00", "action": "get_equipment_status", "params": {"equipment_id": "PUMP-07"}, "ok": false}
